@@ -1,0 +1,52 @@
+# Steps template: dispara os jobs Databricks de qualidade de dados e/ou EDA
+# (resources/data-quality.job.yml e resources/eda.job.yml do projeto) e valida
+# o relatório resultante com o script central (independente de Spark).
+parameters:
+  - name: target
+    type: string
+  - name: runDataQuality
+    type: boolean
+    default: true
+  - name: runEDA
+    type: boolean
+    default: false
+  - name: maximumNullPercentage
+    type: number
+    default: 0.05
+  - name: maximumDuplicatePercentage
+    type: number
+    default: 0.01
+
+steps:
+  - ${{ if eq(parameters.runDataQuality, true) }}:
+      - bash: |
+          set -euo pipefail
+          cd "$(Pipeline.Workspace)/s"
+          databricks bundle run data_quality_job -t ${{ parameters.target }}
+          # Copia o relatório publicado pelo job (artifacts/data_quality) do DBFS/Volume
+          # configurado em conf/${{ parameters.target }}.yml para o agente:
+          databricks fs cp \
+            "dbfs:/mnt/mlops/$(Build.Repository.Name)/${{ parameters.target }}/artifacts/data_quality/data_quality_report.json" \
+            "$(Build.ArtifactStagingDirectory)/data_quality_report.json" --overwrite
+        displayName: "Executar job de qualidade de dados (${{ parameters.target }})"
+        env:
+          DATABRICKS_HOST: $(DATABRICKS_HOST)
+          DATABRICKS_CLIENT_ID: $(DATABRICKS_CLIENT_ID)
+          DATABRICKS_CLIENT_SECRET: $(DATABRICKS_CLIENT_SECRET)
+
+      - bash: |
+          set -euo pipefail
+          python "$(Pipeline.Workspace)/mlops/scripts/validate_data_quality.py" \
+            --report-path "$(Build.ArtifactStagingDirectory)/data_quality_report.json"
+        displayName: "Validar quality gate de dados"
+
+  - ${{ if eq(parameters.runEDA, true) }}:
+      - bash: |
+          set -euo pipefail
+          cd "$(Pipeline.Workspace)/s"
+          databricks bundle run eda_job -t ${{ parameters.target }}
+        displayName: "Executar job de EDA automatizada (${{ parameters.target }})"
+        env:
+          DATABRICKS_HOST: $(DATABRICKS_HOST)
+          DATABRICKS_CLIENT_ID: $(DATABRICKS_CLIENT_ID)
+          DATABRICKS_CLIENT_SECRET: $(DATABRICKS_CLIENT_SECRET)

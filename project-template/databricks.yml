@@ -1,0 +1,92 @@
+# Databricks Asset Bundle do projeto ml-churn.
+#
+# Nenhum host, token ou credencial real está fixado aqui. workspace.host de
+# hml/prd vem de variáveis de bundle setadas via `--var` pela pipeline Azure
+# DevOps (ver pipelines/steps/validate-bundle.yml e
+# pipelines/templates/deploy-hml.yml no repositório central), a partir dos
+# Variable Groups vg-databricks-hml / vg-databricks-prd. A autenticação usa
+# Service Principal / OIDC (ver docs/security.md) -- nunca PAT em texto.
+
+bundle:
+  name: ml-churn
+
+include:
+  - resources/*.yml
+
+variables:
+  environment:
+    description: "Ambiente lógico da execução: dev, hml ou prd."
+    default: dev
+  catalog:
+    description: "Catálogo Unity Catalog do ambiente (injetado via --var, nunca fixo)."
+    default: ""
+  schema:
+    description: "Schema Unity Catalog do projeto dentro do catálogo."
+    default: churn
+  model_name:
+    description: "Nome do modelo registrado, sem catálogo/schema."
+    default: churn_model
+  git_commit:
+    description: "SHA do commit em execução (BUILD_SOURCEVERSION), injetado pela pipeline."
+    default: local
+  build_id:
+    description: "Build ID do Azure DevOps (BUILD_BUILDID), injetado pela pipeline."
+    default: local
+  node_type_id:
+    description: "Tipo de nó do cluster de job. Ajustar conforme política de custo do workspace."
+    default: Standard_DS3_v2
+  spark_version:
+    description: "Databricks Runtime usado pelos jobs (LTS recomendado)."
+    default: 15.4.x-scala2.12
+  min_workers:
+    default: 1
+  max_workers:
+    default: 2
+  workspace_host:
+    description: "Host do workspace Databricks do ambiente-alvo. Vazio em dev (execução local, sem bundle deploy)."
+    default: ""
+  hml_service_principal:
+    description: "Application ID do Service Principal usado para rodar jobs em HML (Workload Identity Federation)."
+    default: ""
+  prd_service_principal:
+    description: "Application ID do Service Principal usado para rodar jobs em PRD (Workload Identity Federation)."
+    default: ""
+
+artifacts:
+  churn_model_wheel:
+    type: whl
+    path: .
+    build: python3 -m pip install --quiet build && python3 -m build --wheel --outdir dist
+
+targets:
+  dev:
+    mode: development
+    default: true
+    variables:
+      environment: dev
+    # Ambiente dev não faz `bundle deploy`: roda 100% local via CLI (ver README.md).
+
+  hml:
+    mode: development
+    workspace:
+      host: "${var.workspace_host}"
+      root_path: "/Shared/.bundle/ml-churn/hml"
+    variables:
+      environment: hml
+    run_as:
+      service_principal_name: "${var.hml_service_principal}"
+
+  prd:
+    mode: production
+    workspace:
+      host: "${var.workspace_host}"
+      root_path: "/Shared/.bundle/ml-churn/prd"
+    variables:
+      environment: prd
+    run_as:
+      service_principal_name: "${var.prd_service_principal}"
+    permissions:
+      - level: CAN_MANAGE_RUN
+        group_name: mlops-platform-admins
+      - level: CAN_VIEW
+        group_name: ml-churn-team

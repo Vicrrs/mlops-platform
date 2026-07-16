@@ -1,0 +1,24 @@
+# Step template: publica resultados de teste (JUnit) e cobertura (Cobertura XML) no Azure DevOps.
+parameters:
+  - name: testResultsFiles
+    type: string
+    default: "$(Common.TestResultsDirectory)/*.xml"
+  - name: coverageReportPath
+    type: string
+    default: "$(Build.ArtifactStagingDirectory)/coverage-unit.xml"
+
+steps:
+  - task: PublishTestResults@2
+    displayName: "Publicar resultados de teste"
+    condition: succeededOrFailed()
+    inputs:
+      testResultsFormat: "JUnit"
+      testResultsFiles: "${{ parameters.testResultsFiles }}"
+      mergeTestResults: true
+      failTaskOnFailedTests: true
+
+  - task: PublishCodeCoverageResults@2
+    displayName: "Publicar cobertura de testes"
+    condition: succeededOrFailed()
+    inputs:
+      summaryFileLocation: "${{ parameters.coverageReportPath }}"

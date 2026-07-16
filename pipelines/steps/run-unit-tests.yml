@@ -1,0 +1,18 @@
+# Step template: testes unitários (tests/unit) com cobertura, sem depender de Spark/Databricks.
+parameters:
+  - name: projectDirectory
+    type: string
+    default: "$(Pipeline.Workspace)/s"
+  - name: packageName
+    type: string
+
+steps:
+  - bash: |
+      set -euo pipefail
+      cd "${{ parameters.projectDirectory }}"
+      pytest tests/unit -v \
+        --junitxml="$(Common.TestResultsDirectory)/unit-tests.xml" \
+        --cov=${{ parameters.packageName }} \
+        --cov-report=xml:"$(Build.ArtifactStagingDirectory)/coverage-unit.xml" \
+        --cov-report=term-missing
+    displayName: "Testes unitários"

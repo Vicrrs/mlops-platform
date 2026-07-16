@@ -1,0 +1,18 @@
+# Ambiente de homologação -- executa dentro de um job Databricks (HML workspace).
+# Nenhum valor real de catálogo/host é fixado aqui: tudo vem de variáveis de
+# ambiente injetadas pelo Databricks Job (Job parameters / Variable Group HML).
+
+environment: hml
+
+data:
+  source: unity_catalog
+  catalog: "${DATABRICKS_CATALOG}"
+  schema: "${DATABRICKS_SCHEMA}"
+
+mlflow:
+  tracking_uri: databricks
+  registry_uri: databricks-uc
+  experiment_name: "${MLFLOW_EXPERIMENT_NAME:-/Shared/ml-churn/hml}"
+  registered_model_name: "${MLFLOW_REGISTERED_MODEL_NAME}"
+
+artifacts_dir: /dbfs/mnt/mlops/ml-churn/hml/artifacts

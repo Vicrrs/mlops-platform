@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "churn-model"
+version = "0.1.0"
+description = "Exemplo funcional de projeto ML sobre a plataforma mlops-platform: churn de clientes."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = { text = "Proprietary" }
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+spark = [
+    "pyspark==3.5.3",
+    "delta-spark==3.2.1",
+]
+mlflow = [
+    "mlflow==2.17.2",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "pandas>=2.0,<2.3",
+    "pyarrow>=14,<17",
+    "numpy<2.0",
+]
+
+[project.scripts]
+churn-run-eda = "churn_model.cli.run_eda:main"
+churn-run-data-quality = "churn_model.cli.run_data_quality:main"
+churn-train-model = "churn_model.cli.train_model:main"
+churn-evaluate-model = "churn_model.cli.evaluate_model:main"
+churn-run-inference = "churn_model.cli.run_inference:main"
+churn-monitor-model = "churn_model.cli.monitor_model:main"
+churn-run-smoke-test = "churn_model.cli.run_smoke_test:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+disallow_untyped_defs = false

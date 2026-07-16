@@ -1,0 +1,75 @@
+# Steps template: executa rollback do Champion para uma versão anterior.
+# NÃO faz parte do fluxo automático de ml-project-pipeline.yml -- rollback é
+# uma ação deliberada, disparada manualmente (pipeline dedicada ou execução
+# local, ver docs/rollback.md), sempre em dry-run por padrão.
+parameters:
+  - name: projectName
+    type: string
+  - name: environment
+    type: string
+  - name: registeredModelName
+    type: string
+  - name: targetVersion
+    type: string
+  - name: championAlias
+    type: string
+    default: "champion"
+  - name: previousChampionAlias
+    type: string
+    default: "previous_champion"
+  - name: author
+    type: string
+  - name: reason
+    type: string
+  - name: confirm
+    type: boolean
+    default: false
+  - name: smokeTestCommand
+    type: string
+    default: ""
+
+steps:
+  - task: UsePythonVersion@0
+    displayName: "Instalar Python"
+    inputs:
+      versionSpec: "3.11"
+
+  - bash: |
+      set -euo pipefail
+      python -m pip install mlflow
+
+      CONFIRM_FLAG=""
+      if [ "${{ parameters.confirm }}" = "True" ]; then
+        CONFIRM_FLAG="--confirm"
+      fi
+
+      SMOKE_TEST_ARG=""
+      if [ -n "${{ parameters.smokeTestCommand }}" ]; then
+        SMOKE_TEST_ARG="--smoke-test-command \"${{ parameters.smokeTestCommand }}\""
+      fi
+
+      python "$(Pipeline.Workspace)/mlops/scripts/rollback.py" \
+        --project "${{ parameters.projectName }}" \
+        --environment "${{ parameters.environment }}" \
+        --tracking-uri "databricks" \
+        --registry-uri "databricks-uc" \
+        --registered-model-name "${{ parameters.registeredModelName }}" \
+        --target-version "${{ parameters.targetVersion }}" \
+        --champion-alias "${{ parameters.championAlias }}" \
+        --previous-champion-alias "${{ parameters.previousChampionAlias }}" \
+        --author "${{ parameters.author }}" \
+        --reason "${{ parameters.reason }}" \
+        --build-id "$(Build.BuildId)" \
+        --output-path "$(Build.ArtifactStagingDirectory)/rollback_report.json" \
+        $SMOKE_TEST_ARG \
+        $CONFIRM_FLAG
+    displayName: "Rollback do Champion (${{ parameters.environment }})"
+    env:
+      DATABRICKS_HOST: $(DATABRICKS_HOST)
+      DATABRICKS_CLIENT_ID: $(DATABRICKS_CLIENT_ID)
+      DATABRICKS_CLIENT_SECRET: $(DATABRICKS_CLIENT_SECRET)
+
+  - template: /pipelines/steps/publish-artifacts.yml@mlops
+    parameters:
+      artifactName: "rollback-report"
+      pathToPublish: "$(Build.ArtifactStagingDirectory)/rollback_report.json"

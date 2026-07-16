@@ -1,0 +1,40 @@
+# Job Databricks: treina o modelo candidato e o registra como Challenger no MLflow.
+# Lógica real em churn_model.models.train/registry, chamada via churn_model.cli.train_model.
+# Por padrão só roda em HML (ver docs/release-process.md: retrainInProduction=false).
+resources:
+  jobs:
+    training_job:
+      name: "ml-churn-training-${bundle.target}"
+      tags:
+        project: ml-churn
+        environment: ${var.environment}
+        managed_by: mlops-platform
+      job_clusters:
+        - job_cluster_key: main
+          new_cluster:
+            spark_version: ${var.spark_version}
+            node_type_id: ${var.node_type_id}
+            num_workers: ${var.max_workers}
+            data_security_mode: SINGLE_USER
+            spark_env_vars:
+              BUILD_SOURCEVERSION: "${var.git_commit}"
+              BUILD_BUILDID: "${var.build_id}"
+      tasks:
+        - task_key: train_model
+          job_cluster_key: main
+          python_wheel_task:
+            package_name: churn_model
+            entry_point: churn-train-model
+            parameters:
+              - "--config"
+              - "conf/${var.environment}.yml"
+              - "--output-dir"
+              - "artifacts/training"
+              - "--dataset-version"
+              - "${var.git_commit}"
+          libraries:
+            - whl: ../dist/*.whl
+      email_notifications:
+        on_failure:
+          - mlops-alerts@empresa.com
+      max_concurrent_runs: 1

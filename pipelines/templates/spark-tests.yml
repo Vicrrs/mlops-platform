@@ -1,0 +1,31 @@
+# Stages template: testes Spark isolados (mais lentos que os testes unitários
+# puros), separados para que possam ser pulados via parâmetro runSparkTests
+# em cenários de iteração rápida (nunca em main/release).
+parameters:
+  - name: pythonVersion
+    type: string
+    default: "3.11"
+  - name: packageName
+    type: string
+
+stages:
+  - stage: SparkTests
+    displayName: "Testes Spark"
+    dependsOn: ValidateProject
+    jobs:
+      - job: SparkTests
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - checkout: self
+          - checkout: mlops
+          - template: /pipelines/steps/install-python.yml@mlops
+            parameters:
+              pythonVersion: ${{ parameters.pythonVersion }}
+          - template: /pipelines/steps/install-project.yml@mlops
+          - template: /pipelines/steps/run-spark-tests.yml@mlops
+            parameters:
+              packageName: ${{ parameters.packageName }}
+          - template: /pipelines/steps/publish-test-results.yml@mlops
+            parameters:
+              coverageReportPath: "$(Build.ArtifactStagingDirectory)/coverage-spark.xml"

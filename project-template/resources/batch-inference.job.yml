@@ -1,0 +1,42 @@
+# Job Databricks: inferência em lote com o modelo Champion registrado.
+# Lógica real em churn_model.models.inference, via churn_model.cli.run_inference.
+resources:
+  jobs:
+    batch_inference_job:
+      name: "ml-churn-batch-inference-${bundle.target}"
+      tags:
+        project: ml-churn
+        environment: ${var.environment}
+        managed_by: mlops-platform
+      job_clusters:
+        - job_cluster_key: main
+          new_cluster:
+            spark_version: ${var.spark_version}
+            node_type_id: ${var.node_type_id}
+            num_workers: ${var.min_workers}
+            data_security_mode: SINGLE_USER
+      tasks:
+        - task_key: run_batch_inference
+          job_cluster_key: main
+          python_wheel_task:
+            package_name: churn_model
+            entry_point: churn-run-inference
+            parameters:
+              - "--config"
+              - "conf/${var.environment}.yml"
+              - "--model-alias"
+              - "champion"
+              - "--output-table"
+              - "${var.catalog}.${var.schema}.churn_predictions"
+              - "--mode"
+              - "append"
+          libraries:
+            - whl: ../dist/*.whl
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: "America/Sao_Paulo"
+        pause_status: PAUSED
+      email_notifications:
+        on_failure:
+          - mlops-alerts@empresa.com
+      max_concurrent_runs: 1

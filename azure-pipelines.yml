@@ -1,0 +1,114 @@
+# Pipeline do PRÓPRIO repositório mlops-platform (não confundir com o template
+# que os projetos consumidores importam). Valida o que este repositório entrega:
+# sintaxe dos templates/steps, lint e testes dos scripts de governança, e a
+# estrutura do project-template. Roda em toda alteração, já que mudanças aqui
+# afetam TODOS os projetos consumidores (ver docs/security.md - Governança).
+
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: "ubuntu-latest"
+
+stages:
+  - stage: ValidatePipelineYaml
+    displayName: "Validar sintaxe dos templates Azure Pipelines"
+    jobs:
+      - job: ValidatePipelineYaml
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: "3.11"
+          - bash: |
+              set -euo pipefail
+              python -m pip install pyyaml
+              python - <<'PYEOF'
+              import sys, glob, yaml
+              files = sorted(glob.glob("pipelines/steps/*.yml")) + sorted(glob.glob("pipelines/templates/*.yml"))
+              errors = 0
+              for f in files:
+                  try:
+                      yaml.safe_load(open(f, encoding="utf-8"))
+                      print("OK  ", f)
+                  except Exception as exc:
+                      errors += 1
+                      print("FAIL", f, "->", exc)
+              print(f"\n{len(files)} arquivos verificados, {errors} erro(s).")
+              sys.exit(1 if errors else 0)
+              PYEOF
+            displayName: "yaml.safe_load em todos os templates/steps"
+
+  - stage: LintAndTestScripts
+    displayName: "Lint e testes dos scripts de governança"
+    dependsOn: ValidatePipelineYaml
+    jobs:
+      - job: LintAndTestScripts
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: "3.11"
+          - bash: |
+              set -euo pipefail
+              python -m pip install -r requirements-dev.txt
+            displayName: "Instalar dependências de teste"
+          - bash: |
+              set -euo pipefail
+              ruff check scripts tests
+              ruff format --check scripts tests
+            displayName: "Lint (Ruff)"
+          - bash: |
+              set -euo pipefail
+              pytest tests -v \
+                --junitxml="$(Common.TestResultsDirectory)/central-scripts-tests.xml"
+            displayName: "Testes dos scripts (tests/test_*.py)"
+          - task: PublishTestResults@2
+            condition: succeededOrFailed()
+            inputs:
+              testResultsFormat: "JUnit"
+              testResultsFiles: "$(Common.TestResultsDirectory)/*.xml"
+
+  - stage: ValidateProjectTemplate
+    displayName: "Validar o project-template (estrutura + testes reais)"
+    dependsOn: ValidatePipelineYaml
+    jobs:
+      - job: ValidateProjectTemplate
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: "3.11"
+          - task: JavaToolInstaller@0
+            inputs:
+              versionSpec: "17"
+              jdkArchitectureOption: "x64"
+              jdkSourceOption: "PreInstalled"
+          - bash: |
+              set -euo pipefail
+              python "$(System.DefaultWorkingDirectory)/scripts/validate_project_structure.py" \
+                --project-path "$(System.DefaultWorkingDirectory)/project-template"
+            displayName: "Validar estrutura do project-template"
+          - bash: |
+              set -euo pipefail
+              cd project-template
+              python -m pip install -e ".[dev,spark,mlflow]"
+              export PYSPARK_PYTHON=$(which python)
+              pytest tests/unit tests/spark -v \
+                --junitxml="$(Common.TestResultsDirectory)/project-template-tests.xml" \
+                --cov=churn_model --cov-report=term-missing \
+                --cov-report=xml:"$(Build.ArtifactStagingDirectory)/coverage.xml"
+            displayName: "Testes reais do project-template (unit + spark)"
+          - task: PublishTestResults@2
+            condition: succeededOrFailed()
+            inputs:
+              testResultsFormat: "JUnit"
+              testResultsFiles: "$(Common.TestResultsDirectory)/*.xml"
+          - task: PublishCodeCoverageResults@2
+            condition: succeededOrFailed()
+            inputs:
+              summaryFileLocation: "$(Build.ArtifactStagingDirectory)/coverage.xml"

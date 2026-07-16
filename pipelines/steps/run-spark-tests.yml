@@ -1,0 +1,31 @@
+# Step template: testes Spark (tests/spark) usando SparkSession local no próprio agente.
+# Requer JDK 17 no agente -- a maioria das imagens hospedadas ubuntu-latest já o inclui;
+# caso contrário, instale-o antes deste step (ver docs/spark-standard.md).
+parameters:
+  - name: projectDirectory
+    type: string
+    default: "$(Pipeline.Workspace)/s"
+  - name: packageName
+    type: string
+  - name: javaVersion
+    type: string
+    default: "17"
+
+steps:
+  - task: JavaToolInstaller@0
+    displayName: "Instalar JDK ${{ parameters.javaVersion }}"
+    inputs:
+      versionSpec: "${{ parameters.javaVersion }}"
+      jdkArchitectureOption: "x64"
+      jdkSourceOption: "PreInstalled"
+
+  - bash: |
+      set -euo pipefail
+      cd "${{ parameters.projectDirectory }}"
+      export PYSPARK_PYTHON="$(which python)"
+      pytest tests/spark -v \
+        --junitxml="$(Common.TestResultsDirectory)/spark-tests.xml" \
+        --cov=${{ parameters.packageName }} \
+        --cov-report=xml:"$(Build.ArtifactStagingDirectory)/coverage-spark.xml" \
+        --cov-append --cov-report=term-missing
+    displayName: "Testes Spark"

@@ -1,0 +1,13 @@
+# Step template: lint (Ruff) do projeto consumidor. Falha a pipeline em qualquer violação.
+parameters:
+  - name: projectDirectory
+    type: string
+    default: "$(Pipeline.Workspace)/s"
+
+steps:
+  - bash: |
+      set -euo pipefail
+      cd "${{ parameters.projectDirectory }}"
+      ruff check src tests
+      ruff format --check src tests
+    displayName: "Lint (Ruff)"

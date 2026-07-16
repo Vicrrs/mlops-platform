@@ -1,0 +1,56 @@
+# Steps template: promove a versão Challenger validada para Champion.
+# Chama o script central scripts/promote_model.py, que:
+#  - reverifica a consistência (run_metadata + recomendação + aprovação);
+#  - move o alias 'champion' atual para 'previous_champion';
+#  - atribui 'champion' à versão do Challenger;
+#  - grava promotion_record.json com aprovador, build e timestamp.
+# Não treina nada; usa EXATAMENTE a versão validada em HML (mesmo run_id).
+parameters:
+  - name: artifactName
+    type: string
+  - name: championAlias
+    type: string
+    default: "champion"
+  - name: previousChampionAlias
+    type: string
+    default: "previous_champion"
+  - name: registryMode
+    type: string
+    default: "shared_uc"
+
+steps:
+  - bash: |
+      set -euo pipefail
+      python -m pip install mlflow
+
+      RUN_METADATA="$(Pipeline.Workspace)/${{ parameters.artifactName }}-training/run_metadata.json"
+      REGISTERED_MODEL_NAME=$(python -c "import json; print(json.load(open('$RUN_METADATA'))['registered_model_name'])")
+      MODEL_VERSION=$(python -c "import json; print(json.load(open('$RUN_METADATA'))['model_version'])")
+      APPROVER=$(python -c "import json; print(json.load(open('$(Pipeline.Workspace)/${{ parameters.artifactName }}-approval/approval.json'))['approver'])")
+
+      python "$(Pipeline.Workspace)/mlops/scripts/promote_model.py" \
+        --tracking-uri "databricks" \
+        --registry-uri "databricks-uc" \
+        --registered-model-name "$REGISTERED_MODEL_NAME" \
+        --challenger-version "$MODEL_VERSION" \
+        --champion-alias "${{ parameters.championAlias }}" \
+        --challenger-alias "challenger" \
+        --previous-champion-alias "${{ parameters.previousChampionAlias }}" \
+        --promotion-recommendation-path "$(Pipeline.Workspace)/${{ parameters.artifactName }}-comparison/promotion_recommendation.json" \
+        --run-metadata-path "$RUN_METADATA" \
+        --approval-path "$(Pipeline.Workspace)/${{ parameters.artifactName }}-approval/approval.json" \
+        --approver "$APPROVER" \
+        --build-id "$(Build.BuildId)" \
+        --registry-mode "${{ parameters.registryMode }}" \
+        --output-path "$(Build.ArtifactStagingDirectory)/promotion_record.json" \
+        --confirm
+    displayName: "Promover Challenger para Champion (${{ parameters.registryMode }})"
+    env:
+      DATABRICKS_HOST: $(DATABRICKS_HOST)
+      DATABRICKS_CLIENT_ID: $(DATABRICKS_CLIENT_ID)
+      DATABRICKS_CLIENT_SECRET: $(DATABRICKS_CLIENT_SECRET)
+
+  - template: /pipelines/steps/publish-artifacts.yml@mlops
+    parameters:
+      artifactName: "${{ parameters.artifactName }}-promotion"
+      pathToPublish: "$(Build.ArtifactStagingDirectory)/promotion_record.json"

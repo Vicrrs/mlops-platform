@@ -1,0 +1,40 @@
+# Job Databricks: compara Challenger vs. Champion no mesmo dataset de teste.
+# Lógica real em churn_model.models.champion_challenger, via churn_model.cli.evaluate_model.
+# --enforce faz o job falhar quando o Challenger não é aprovado tecnicamente
+# (o quality gate central em scripts/compare_champion_challenger.py revalida
+# esse resultado na pipeline Azure DevOps, de forma independente do Spark).
+resources:
+  jobs:
+    model_validation_job:
+      name: "ml-churn-model-validation-${bundle.target}"
+      tags:
+        project: ml-churn
+        environment: ${var.environment}
+        managed_by: mlops-platform
+      job_clusters:
+        - job_cluster_key: main
+          new_cluster:
+            spark_version: ${var.spark_version}
+            node_type_id: ${var.node_type_id}
+            num_workers: ${var.min_workers}
+            data_security_mode: SINGLE_USER
+      tasks:
+        - task_key: compare_champion_challenger
+          job_cluster_key: main
+          python_wheel_task:
+            package_name: churn_model
+            entry_point: churn-evaluate-model
+            parameters:
+              - "--config"
+              - "conf/${var.environment}.yml"
+              - "--output-dir"
+              - "artifacts/model_comparison"
+              - "--dataset-version"
+              - "${var.git_commit}"
+              - "--enforce"
+          libraries:
+            - whl: ../dist/*.whl
+      email_notifications:
+        on_failure:
+          - mlops-alerts@empresa.com
+      max_concurrent_runs: 1

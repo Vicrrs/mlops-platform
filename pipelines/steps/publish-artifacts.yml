@@ -1,0 +1,15 @@
+# Step template: publica um artefato imutável do Azure Pipelines a partir de um diretório.
+parameters:
+  - name: artifactName
+    type: string
+  - name: pathToPublish
+    type: string
+    default: "$(Build.ArtifactStagingDirectory)"
+
+steps:
+  - task: PublishPipelineArtifact@1
+    displayName: "Publicar artefato: ${{ parameters.artifactName }}"
+    inputs:
+      targetPath: "${{ parameters.pathToPublish }}"
+      artifact: "${{ parameters.artifactName }}"
+      publishLocation: "pipeline"

@@ -1,0 +1,86 @@
+# Steps template: dispara o job de validação de modelo (resources/model-validation.job.yml,
+# que roda churn_model.models.champion_challenger no MESMO dataset de teste),
+# recolhe as métricas brutas e recalcula a recomendação de promoção de forma
+# CENTRALIZADA com scripts/compare_champion_challenger.py -- a governança do
+# quality gate fica no repositório central, não no projeto (ver docs/champion-challenger.md).
+parameters:
+  - name: target
+    type: string
+  - name: artifactName
+    type: string
+  - name: projectName
+    type: string
+  - name: primaryMetric
+    type: string
+  - name: minimumAccuracy
+    type: number
+  - name: minimumPrecision
+    type: number
+  - name: minimumRecall
+    type: number
+  - name: minimumF1Score
+    type: number
+  - name: minimumRocAuc
+    type: number
+  - name: maximumMetricRegression
+    type: number
+
+steps:
+  - task: UsePythonVersion@0
+    displayName: "Instalar Python"
+    inputs:
+      versionSpec: "3.11"
+
+  - template: /pipelines/steps/install-databricks-cli.yml@mlops
+
+  - bash: |
+      set -euo pipefail
+      python -m pip install mlflow pyyaml
+      cd "$(Pipeline.Workspace)/s"
+      databricks bundle run model_validation_job -t ${{ parameters.target }}
+      mkdir -p "$(Build.ArtifactStagingDirectory)"
+      for f in champion_metrics.json challenger_metrics.json; do
+        databricks fs cp \
+          "dbfs:/mnt/mlops/$(Build.Repository.Name)/${{ parameters.target }}/artifacts/model_comparison/$f" \
+          "$(Build.ArtifactStagingDirectory)/$f" --overwrite
+      done
+    displayName: "Executar validação de modelo e recolher métricas"
+    env:
+      DATABRICKS_HOST: $(DATABRICKS_HOST)
+      DATABRICKS_CLIENT_ID: $(DATABRICKS_CLIENT_ID)
+      DATABRICKS_CLIENT_SECRET: $(DATABRICKS_CLIENT_SECRET)
+
+  - bash: |
+      set -euo pipefail
+      RUN_METADATA="$(Pipeline.Workspace)/${{ parameters.artifactName }}-training/run_metadata.json"
+      CHALLENGER_VERSION=$(python -c "import json; print(json.load(open('$RUN_METADATA'))['model_version'])")
+      CHALLENGER_RUN_ID=$(python -c "import json; print(json.load(open('$RUN_METADATA'))['mlflow_run_id'])")
+      REGISTERED_MODEL_NAME=$(python -c "import json; print(json.load(open('$RUN_METADATA'))['registered_model_name'])")
+
+      CHAMPION_METRICS_ARG=""
+      if [ -s "$(Build.ArtifactStagingDirectory)/champion_metrics.json" ]; then
+        CHAMPION_METRICS_ARG="--champion-metrics-path $(Build.ArtifactStagingDirectory)/champion_metrics.json"
+      fi
+
+      python "$(Pipeline.Workspace)/mlops/scripts/compare_champion_challenger.py" \
+        --challenger-metrics-path "$(Build.ArtifactStagingDirectory)/challenger_metrics.json" \
+        $CHAMPION_METRICS_ARG \
+        --primary-metric "${{ parameters.primaryMetric }}" \
+        --minimum-accuracy ${{ parameters.minimumAccuracy }} \
+        --minimum-precision ${{ parameters.minimumPrecision }} \
+        --minimum-recall ${{ parameters.minimumRecall }} \
+        --minimum-f1-score ${{ parameters.minimumF1Score }} \
+        --minimum-roc-auc ${{ parameters.minimumRocAuc }} \
+        --maximum-metric-regression ${{ parameters.maximumMetricRegression }} \
+        --project-name "${{ parameters.projectName }}" \
+        --registered-model-name "$REGISTERED_MODEL_NAME" \
+        --challenger-version "$CHALLENGER_VERSION" \
+        --challenger-run-id "$CHALLENGER_RUN_ID" \
+        --git-commit "$(Build.SourceVersion)" \
+        --dataset-version "$(Build.SourceVersion)" \
+        --output-dir "$(Build.ArtifactStagingDirectory)"
+    displayName: "Recalcular recomendação de promoção (governança central)"
+
+  - template: /pipelines/steps/publish-artifacts.yml@mlops
+    parameters:
+      artifactName: "${{ parameters.artifactName }}-comparison"

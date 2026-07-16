@@ -1,0 +1,74 @@
+# Pipeline do repositório consumidor (ex.: ml-churn). Deliberadamente pequena:
+# toda a lógica de CI/CD reutilizável vem do template versionado em
+# mlops-platform. Nunca copie a lógica dos estágios para cá -- edite o
+# template central e libere uma nova tag.
+#
+# Pendências externas antes deste pipeline rodar de verdade no Azure DevOps
+# (ver docs/required-variables.md):
+#   - Repositório <AZURE_DEVOPS_PROJECT>/mlops-platform acessível a este projeto;
+#   - Environments 'databricks-hml' e 'databricks-prd' criados, com approval checks;
+#   - Variable Groups vg-databricks-hml / vg-databricks-prd com as variáveis
+#     descritas em docs/required-variables.md (nenhuma delas tem valor aqui).
+
+trigger:
+  branches:
+    include:
+      - main
+      - release/*
+
+pr:
+  branches:
+    include:
+      - main
+
+resources:
+  repositories:
+    - repository: mlops
+      type: git
+      name: <AZURE_DEVOPS_PROJECT>/mlops-platform
+      ref: refs/tags/v1.0.0 # versão do template fixada por tag -- nunca refs/heads/main
+
+extends:
+  template: pipelines/templates/ml-project-pipeline.yml@mlops
+  parameters:
+    projectName: ml-churn
+    packageName: churn_model
+    pythonVersion: "3.11"
+
+    databricksHmlTarget: hml
+    databricksPrdTarget: prd
+
+    hmlEnvironmentName: databricks-hml
+    prdEnvironmentName: databricks-prd
+
+    hmlVariableGroup: vg-databricks-hml
+    prdVariableGroup: vg-databricks-prd
+
+    runSparkTests: true
+    runIntegrationTests: true
+    runSecurityScan: true
+    runDataQuality: true
+    runEDA: true
+    runSmokeTests: true
+
+    modelType: spark_ml
+    primaryMetric: f1_score
+
+    minimumAccuracy: 0.60
+    minimumPrecision: 0.55
+    minimumRecall: 0.55
+    minimumF1Score: 0.55
+    minimumRocAuc: 0.60
+
+    maximumMetricRegression: 0.01
+    maximumNullPercentage: 0.05
+    maximumDuplicatePercentage: 0.01
+
+    championAlias: champion
+    challengerAlias: challenger
+    previousChampionAlias: previous_champion
+
+    registryMode: shared_uc
+    retrainInProduction: false
+
+    artifactName: ml-churn

@@ -1,0 +1,24 @@
+# Steps template: deploy do Databricks Asset Bundle em HML, a partir do
+# artefato imutável já construído (nenhum re-build acontece aqui).
+parameters:
+  - name: target
+    type: string
+  - name: artifactName
+    type: string
+
+steps:
+  - download: current
+    artifact: ${{ parameters.artifactName }}
+
+  - bash: |
+      set -euo pipefail
+      cd "$(Pipeline.Workspace)/${{ parameters.artifactName }}"
+      databricks bundle deploy -t ${{ parameters.target }} \
+        --var="git_commit=$(Build.SourceVersion)" \
+        --var="build_id=$(Build.BuildId)"
+    displayName: "databricks bundle deploy (${{ parameters.target }})"
+    env:
+      DATABRICKS_HOST: $(DATABRICKS_HOST)
+      DATABRICKS_CLIENT_ID: $(DATABRICKS_CLIENT_ID)
+      DATABRICKS_CLIENT_SECRET: $(DATABRICKS_CLIENT_SECRET)
+      ARM_TENANT_ID: $(AZURE_TENANT_ID)

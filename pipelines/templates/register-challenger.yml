@@ -1,0 +1,31 @@
+# Steps template: confirma que o job de treino (resources/training.job.yml)
+# de fato registrou a versão candidata com o alias Challenger no MLflow
+# Model Registry. O registro em si acontece dentro do job Databricks
+# (churn_model.cli.train_model); este step é uma checagem de auditoria.
+parameters:
+  - name: artifactName
+    type: string
+  - name: challengerAlias
+    type: string
+    default: "challenger"
+
+steps:
+  - task: UsePythonVersion@0
+    displayName: "Instalar Python"
+    inputs:
+      versionSpec: "3.11"
+
+  - bash: |
+      set -euo pipefail
+      RUN_METADATA="$(Pipeline.Workspace)/${{ parameters.artifactName }}-training/run_metadata.json"
+      ALIAS=$(python -c "import json; print(json.load(open('$RUN_METADATA'))['model_alias'])")
+      RUN_ID=$(python -c "import json; print(json.load(open('$RUN_METADATA'))['mlflow_run_id'])")
+      MODEL_VERSION=$(python -c "import json; print(json.load(open('$RUN_METADATA'))['model_version'])")
+
+      if [ "$ALIAS" != "${{ parameters.challengerAlias }}" ]; then
+        echo "##vso[task.logissue type=error]run_metadata.json indica alias '$ALIAS', esperado '${{ parameters.challengerAlias }}'."
+        exit 1
+      fi
+
+      echo "Challenger registrado: run_id=$RUN_ID, versão=$MODEL_VERSION, alias=$ALIAS"
+    displayName: "Confirmar registro do Challenger"

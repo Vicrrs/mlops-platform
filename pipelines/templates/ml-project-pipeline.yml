@@ -1,0 +1,568 @@
+# Template principal da plataforma mlops-platform.
+#
+# Um repositório consumidor (ex.: ml-fraude) importa este template via
+# `extends:` no seu azure-pipelines.yml, fixando a versão por tag
+# (refs/tags/vX.Y.Z). Este arquivo define TODOS os stages do fluxo
+# Repo -> HML -> aprovação manual -> PRD descrito em docs/release-process.md.
+#
+# Regras de execução por evento (ver docs/release-process.md):
+#   - Pull Request: ValidateProject..IntegrationTestsHML (nunca deploy em PRD).
+#   - Merge na main: os mesmos stages acima + DeployHML e cadeia de modelo em HML.
+#   - PRD: só ocorre após ApprovalPRD (Azure DevOps Environment com approval check).
+
+parameters:
+  # --- Identidade do projeto ---
+  - name: projectName
+    type: string
+  - name: packageName
+    type: string
+  - name: pythonVersion
+    type: string
+    default: "3.11"
+  - name: artifactName
+    type: string
+
+  # --- Databricks / ambientes ---
+  - name: databricksHmlTarget
+    type: string
+    default: "hml"
+  - name: databricksPrdTarget
+    type: string
+    default: "prd"
+  - name: hmlEnvironmentName
+    type: string
+    default: "databricks-hml"
+  - name: prdEnvironmentName
+    type: string
+    default: "databricks-prd"
+  - name: hmlVariableGroup
+    type: string
+    default: "vg-databricks-hml"
+  - name: prdVariableGroup
+    type: string
+    default: "vg-databricks-prd"
+
+  # --- Flags de execução ---
+  - name: runSparkTests
+    type: boolean
+    default: true
+  - name: runIntegrationTests
+    type: boolean
+    default: true
+  - name: runSecurityScan
+    type: boolean
+    default: true
+  - name: runDataQuality
+    type: boolean
+    default: true
+  - name: runEDA
+    type: boolean
+    default: true
+  - name: runSmokeTests
+    type: boolean
+    default: true
+
+  # --- Modelo e quality gate ---
+  - name: modelType
+    type: string
+    default: "spark_ml"
+  - name: primaryMetric
+    type: string
+    default: "f1_score"
+  - name: minimumPrimaryMetric
+    type: number
+    default: 0.0
+  - name: minimumAccuracy
+    type: number
+    default: 0.0
+  - name: minimumPrecision
+    type: number
+    default: 0.0
+  - name: minimumRecall
+    type: number
+    default: 0.0
+  - name: minimumF1Score
+    type: number
+    default: 0.0
+  - name: minimumRocAuc
+    type: number
+    default: 0.0
+  - name: maximumMetricRegression
+    type: number
+    default: 0.01
+  - name: maximumNullPercentage
+    type: number
+    default: 0.05
+  - name: maximumDuplicatePercentage
+    type: number
+    default: 0.01
+
+  # --- Champion/Challenger e registry ---
+  - name: championAlias
+    type: string
+    default: "champion"
+  - name: challengerAlias
+    type: string
+    default: "challenger"
+  - name: previousChampionAlias
+    type: string
+    default: "previous_champion"
+  - name: registryMode
+    type: string
+    default: "shared_uc"
+    values:
+      - shared_uc
+      - separate_uc
+  - name: retrainInProduction
+    type: boolean
+    default: false
+
+variables:
+  isPullRequest: $[eq(variables['Build.Reason'], 'PullRequest')]
+  isMainBranch: $[eq(variables['Build.SourceBranch'], 'refs/heads/main')]
+  mlopsPipelineTemplateVersion: $(Build.Repository.Name)@$(Resources.Repositories.mlops.Ref)
+
+stages:
+  # ============================================================
+  # CI -- roda sempre (PR e main): validação de estrutura, lint, testes,
+  # security scan. Stages definidos em templates/ci.yml.
+  # ============================================================
+  - template: /pipelines/templates/ci.yml@mlops
+    parameters:
+      pythonVersion: ${{ parameters.pythonVersion }}
+      packageName: ${{ parameters.packageName }}
+      runSecurityScan: ${{ parameters.runSecurityScan }}
+
+  # Testes Spark: stage isolado em templates/spark-tests.yml (condicional via runSparkTests).
+  - ${{ if eq(parameters.runSparkTests, true) }}:
+      - template: /pipelines/templates/spark-tests.yml@mlops
+        parameters:
+          pythonVersion: ${{ parameters.pythonVersion }}
+          packageName: ${{ parameters.packageName }}
+
+  # ============================================================
+  # Build -- artefato imutável (wheel + metadados). Roda sempre.
+  # ============================================================
+  - stage: BuildArtifact
+    displayName: "Build do artefato imutável"
+    dependsOn:
+      - Lint
+      - UnitTests
+    jobs:
+      - job: BuildArtifact
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - checkout: self
+          - checkout: mlops
+          - template: /pipelines/steps/install-python.yml@mlops
+            parameters:
+              pythonVersion: ${{ parameters.pythonVersion }}
+          - template: /pipelines/templates/build.yml@mlops
+            parameters:
+              packageName: ${{ parameters.packageName }}
+              artifactName: ${{ parameters.artifactName }}
+
+  - stage: ValidateBundle
+    displayName: "Validar Databricks Asset Bundle"
+    dependsOn: BuildArtifact
+    variables:
+      - group: ${{ parameters.hmlVariableGroup }}
+    jobs:
+      - job: ValidateBundle
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - checkout: self
+          - checkout: mlops
+          - template: /pipelines/steps/install-python.yml@mlops
+            parameters:
+              pythonVersion: ${{ parameters.pythonVersion }}
+          - template: /pipelines/steps/install-databricks-cli.yml@mlops
+          - template: /pipelines/steps/validate-bundle.yml@mlops
+            parameters:
+              target: ${{ parameters.databricksHmlTarget }}
+
+  # ============================================================
+  # HML -- nunca roda em Pull Request (só após merge na main / release/*).
+  # ============================================================
+  - stage: DeployHML
+    displayName: "Deploy HML (Databricks Asset Bundle)"
+    dependsOn: ValidateBundle
+    condition: and(succeeded(), eq(variables.isPullRequest, false))
+    variables:
+      - group: ${{ parameters.hmlVariableGroup }}
+    jobs:
+      - deployment: DeployHML
+        environment: ${{ parameters.hmlEnvironmentName }}
+        pool:
+          vmImage: "ubuntu-latest"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - template: /pipelines/steps/install-python.yml@mlops
+                  parameters:
+                    pythonVersion: ${{ parameters.pythonVersion }}
+                - template: /pipelines/steps/install-databricks-cli.yml@mlops
+                - template: /pipelines/templates/deploy-hml.yml@mlops
+                  parameters:
+                    target: ${{ parameters.databricksHmlTarget }}
+                    artifactName: ${{ parameters.artifactName }}
+
+  - ${{ if eq(parameters.runDataQuality, true) }}:
+      - stage: DataQualityHML
+        displayName: "Qualidade de dados (HML)"
+        dependsOn: DeployHML
+        condition: and(succeeded(), eq(variables.isPullRequest, false))
+        variables:
+          - group: ${{ parameters.hmlVariableGroup }}
+        jobs:
+          - job: DataQualityHML
+            pool:
+              vmImage: "ubuntu-latest"
+            steps:
+              - checkout: self
+              - checkout: mlops
+              - template: /pipelines/steps/install-python.yml@mlops
+                parameters:
+                  pythonVersion: ${{ parameters.pythonVersion }}
+              - template: /pipelines/steps/install-databricks-cli.yml@mlops
+              - template: /pipelines/templates/data-quality.yml@mlops
+                parameters:
+                  target: ${{ parameters.databricksHmlTarget }}
+                  runDataQuality: true
+                  runEDA: false
+                  maximumNullPercentage: ${{ parameters.maximumNullPercentage }}
+                  maximumDuplicatePercentage: ${{ parameters.maximumDuplicatePercentage }}
+
+  - ${{ if eq(parameters.runEDA, true) }}:
+      - stage: AutomatedEDAHML
+        displayName: "EDA automatizada (HML)"
+        dependsOn:
+          - ${{ if eq(parameters.runDataQuality, true) }}:
+              - DataQualityHML
+          - ${{ if eq(parameters.runDataQuality, false) }}:
+              - DeployHML
+        condition: and(succeeded(), eq(variables.isPullRequest, false))
+        variables:
+          - group: ${{ parameters.hmlVariableGroup }}
+        jobs:
+          - job: AutomatedEDAHML
+            pool:
+              vmImage: "ubuntu-latest"
+            steps:
+              - checkout: self
+              - checkout: mlops
+              - template: /pipelines/steps/install-python.yml@mlops
+                parameters:
+                  pythonVersion: ${{ parameters.pythonVersion }}
+              - template: /pipelines/steps/install-databricks-cli.yml@mlops
+              - template: /pipelines/templates/data-quality.yml@mlops
+                parameters:
+                  target: ${{ parameters.databricksHmlTarget }}
+                  runDataQuality: false
+                  runEDA: true
+
+  - stage: TrainCandidateHML
+    displayName: "Treinar Challenger (HML)"
+    dependsOn:
+      - ${{ if eq(parameters.runEDA, true) }}:
+          - AutomatedEDAHML
+      - ${{ if and(eq(parameters.runEDA, false), eq(parameters.runDataQuality, true)) }}:
+          - DataQualityHML
+      - ${{ if and(eq(parameters.runEDA, false), eq(parameters.runDataQuality, false)) }}:
+          - DeployHML
+    condition: and(succeeded(), eq(variables.isPullRequest, false))
+    variables:
+      - group: ${{ parameters.hmlVariableGroup }}
+    jobs:
+      - job: TrainCandidateHML
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - checkout: self
+          - checkout: mlops
+          - template: /pipelines/steps/install-python.yml@mlops
+            parameters:
+              pythonVersion: ${{ parameters.pythonVersion }}
+          - template: /pipelines/steps/install-databricks-cli.yml@mlops
+          - template: /pipelines/templates/train-candidate.yml@mlops
+            parameters:
+              target: ${{ parameters.databricksHmlTarget }}
+              packageName: ${{ parameters.packageName }}
+              artifactName: ${{ parameters.artifactName }}
+
+  - stage: EvaluateCandidateHML
+    displayName: "Avaliar Challenger contra limites absolutos (HML)"
+    dependsOn: TrainCandidateHML
+    condition: and(succeeded(), eq(variables.isPullRequest, false))
+    jobs:
+      - job: EvaluateCandidateHML
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - checkout: self
+          - checkout: mlops
+          - template: /pipelines/steps/install-python.yml@mlops
+            parameters:
+              pythonVersion: ${{ parameters.pythonVersion }}
+          - download: current
+            artifact: "${{ parameters.artifactName }}-training"
+          - bash: |
+              set -euo pipefail
+              python "$(Pipeline.Workspace)/mlops/scripts/validate_model_metrics.py" \
+                --metrics-path "$(Pipeline.Workspace)/${{ parameters.artifactName }}-training/model_metrics.json" \
+                --minimum-accuracy ${{ parameters.minimumAccuracy }} \
+                --minimum-precision ${{ parameters.minimumPrecision }} \
+                --minimum-recall ${{ parameters.minimumRecall }} \
+                --minimum-f1-score ${{ parameters.minimumF1Score }} \
+                --minimum-roc-auc ${{ parameters.minimumRocAuc }}
+            displayName: "Validar métricas absolutas do Challenger"
+
+  - stage: RegisterChallenger
+    displayName: "Confirmar registro do Challenger"
+    dependsOn: EvaluateCandidateHML
+    jobs:
+      - job: RegisterChallenger
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - checkout: mlops
+          - download: current
+            artifact: "${{ parameters.artifactName }}-training"
+          - template: /pipelines/templates/register-challenger.yml@mlops
+            parameters:
+              artifactName: ${{ parameters.artifactName }}
+              challengerAlias: ${{ parameters.challengerAlias }}
+
+  - ${{ if eq(parameters.runIntegrationTests, true) }}:
+      - stage: IntegrationTestsHML
+        displayName: "Testes de integração (HML)"
+        dependsOn: RegisterChallenger
+        variables:
+          - group: ${{ parameters.hmlVariableGroup }}
+        jobs:
+          - job: IntegrationTestsHML
+            pool:
+              vmImage: "ubuntu-latest"
+            steps:
+              - checkout: self
+              - checkout: mlops
+              - template: /pipelines/steps/install-python.yml@mlops
+                parameters:
+                  pythonVersion: ${{ parameters.pythonVersion }}
+              - template: /pipelines/steps/install-project.yml@mlops
+              - bash: |
+                  set -euo pipefail
+                  cd "$(Pipeline.Workspace)/s"
+                  pytest tests/integration -v --junitxml="$(Common.TestResultsDirectory)/integration-tests.xml"
+                displayName: "Testes de integração"
+              - template: /pipelines/steps/publish-test-results.yml@mlops
+
+  - stage: CompareChampionChallenger
+    displayName: "Comparar Champion vs. Challenger"
+    dependsOn:
+      - ${{ if eq(parameters.runIntegrationTests, true) }}:
+          - IntegrationTestsHML
+      - ${{ if eq(parameters.runIntegrationTests, false) }}:
+          - RegisterChallenger
+    jobs:
+      - job: CompareChampionChallenger
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - checkout: mlops
+          - download: current
+            artifact: "${{ parameters.artifactName }}-training"
+          - template: /pipelines/templates/compare-models.yml@mlops
+            parameters:
+              target: ${{ parameters.databricksHmlTarget }}
+              artifactName: ${{ parameters.artifactName }}
+              projectName: ${{ parameters.projectName }}
+              primaryMetric: ${{ parameters.primaryMetric }}
+              minimumAccuracy: ${{ parameters.minimumAccuracy }}
+              minimumPrecision: ${{ parameters.minimumPrecision }}
+              minimumRecall: ${{ parameters.minimumRecall }}
+              minimumF1Score: ${{ parameters.minimumF1Score }}
+              minimumRocAuc: ${{ parameters.minimumRocAuc }}
+              maximumMetricRegression: ${{ parameters.maximumMetricRegression }}
+
+  - stage: ModelQualityGate
+    displayName: "Quality gate do modelo"
+    dependsOn: CompareChampionChallenger
+    jobs:
+      - job: ModelQualityGate
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - checkout: mlops
+          - download: current
+            artifact: "${{ parameters.artifactName }}-comparison"
+          - template: /pipelines/templates/model-quality-gate.yml@mlops
+            parameters:
+              artifactName: ${{ parameters.artifactName }}
+
+  # ============================================================
+  # PRD -- exige aprovação manual (Azure DevOps Environment check) e usa
+  # exatamente o artefato validado em HML. Nunca re-treina por padrão.
+  # ============================================================
+  - stage: ApprovalPRD
+    displayName: "Aprovação manual para PRD"
+    dependsOn: ModelQualityGate
+    condition: and(succeeded(), eq(variables.isMainBranch, true))
+    jobs:
+      # O check de aprovação manual fica configurado no Environment
+      # '${{ parameters.prdEnvironmentName }}' (Azure DevOps Environments ->
+      # Approvals and checks) -- este job só COMEÇA a executar depois que um
+      # aprovador humano aceitar o check; nenhuma promoção ocorre antes disso.
+      - deployment: ApprovalPRD
+        environment: ${{ parameters.prdEnvironmentName }}
+        pool:
+          vmImage: "ubuntu-latest"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: "${{ parameters.artifactName }}-training"
+                - template: /pipelines/templates/approval-prd.yml@mlops
+                  parameters:
+                    artifactName: ${{ parameters.artifactName }}
+
+  - stage: VerifyPromotionArtifact
+    displayName: "Verificar integridade do artefato antes do deploy em PRD"
+    dependsOn: ApprovalPRD
+    jobs:
+      - job: VerifyPromotionArtifact
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - checkout: mlops
+          - template: /pipelines/steps/install-python.yml@mlops
+            parameters:
+              pythonVersion: ${{ parameters.pythonVersion }}
+          - download: current
+            artifact: "${{ parameters.artifactName }}-training"
+          - download: current
+            artifact: "${{ parameters.artifactName }}-comparison"
+          - download: current
+            artifact: "${{ parameters.artifactName }}-approval"
+          - bash: |
+              set -euo pipefail
+              python "$(Pipeline.Workspace)/mlops/scripts/verify_promotion_metadata.py" \
+                --promotion-recommendation-path "$(Pipeline.Workspace)/${{ parameters.artifactName }}-comparison/promotion_recommendation.json" \
+                --run-metadata-path "$(Pipeline.Workspace)/${{ parameters.artifactName }}-training/run_metadata.json" \
+                --approval-path "$(Pipeline.Workspace)/${{ parameters.artifactName }}-approval/approval.json"
+            displayName: "Verificar consistência entre recomendação, execução e aprovação"
+          - bash: |
+              set -euo pipefail
+              python "$(Pipeline.Workspace)/mlops/scripts/validate_model_artifact.py" \
+                --run-metadata-path "$(Pipeline.Workspace)/${{ parameters.artifactName }}-training/run_metadata.json" \
+                --expected-commit "$(Build.SourceVersion)" \
+                --expected-run-id "$(cat $(Pipeline.Workspace)/${{ parameters.artifactName }}-training/mlflow_run_id.txt)" \
+                --expected-model-version "$(cat $(Pipeline.Workspace)/${{ parameters.artifactName }}-training/model_version.txt)"
+            displayName: "Validar consistência commit/run_id/versão"
+
+  - stage: DeployPRD
+    displayName: "Deploy PRD (Databricks Asset Bundle)"
+    dependsOn: VerifyPromotionArtifact
+    variables:
+      - group: ${{ parameters.prdVariableGroup }}
+    jobs:
+      - deployment: DeployPRD
+        environment: ${{ parameters.prdEnvironmentName }}
+        pool:
+          vmImage: "ubuntu-latest"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - template: /pipelines/steps/install-python.yml@mlops
+                  parameters:
+                    pythonVersion: ${{ parameters.pythonVersion }}
+                - template: /pipelines/steps/install-databricks-cli.yml@mlops
+                - template: /pipelines/templates/deploy-prd.yml@mlops
+                  parameters:
+                    target: ${{ parameters.databricksPrdTarget }}
+                    artifactName: ${{ parameters.artifactName }}
+                    retrainInProduction: ${{ parameters.retrainInProduction }}
+
+  - stage: PromoteChampion
+    displayName: "Promover Challenger a Champion"
+    dependsOn: DeployPRD
+    variables:
+      - group: ${{ parameters.prdVariableGroup }}
+    jobs:
+      - deployment: PromoteChampion
+        environment: ${{ parameters.prdEnvironmentName }}
+        pool:
+          vmImage: "ubuntu-latest"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - template: /pipelines/steps/install-python.yml@mlops
+                  parameters:
+                    pythonVersion: ${{ parameters.pythonVersion }}
+                - download: current
+                  artifact: "${{ parameters.artifactName }}-training"
+                - download: current
+                  artifact: "${{ parameters.artifactName }}-comparison"
+                - download: current
+                  artifact: "${{ parameters.artifactName }}-approval"
+                - template: /pipelines/templates/promote-champion.yml@mlops
+                  parameters:
+                    artifactName: ${{ parameters.artifactName }}
+                    championAlias: ${{ parameters.championAlias }}
+                    previousChampionAlias: ${{ parameters.previousChampionAlias }}
+                    registryMode: ${{ parameters.registryMode }}
+                    registryMode: ${{ parameters.registryMode }}
+
+  - ${{ if eq(parameters.runSmokeTests, true) }}:
+      - stage: SmokeTestsPRD
+        displayName: "Smoke tests (PRD)"
+        dependsOn: PromoteChampion
+        variables:
+          - group: ${{ parameters.prdVariableGroup }}
+        jobs:
+          - job: SmokeTestsPRD
+            pool:
+              vmImage: "ubuntu-latest"
+            steps:
+              - checkout: self
+              - checkout: mlops
+              - template: /pipelines/steps/install-python.yml@mlops
+                parameters:
+                  pythonVersion: ${{ parameters.pythonVersion }}
+              - template: /pipelines/steps/install-databricks-cli.yml@mlops
+              - template: /pipelines/templates/smoke-tests.yml@mlops
+                parameters:
+                  target: ${{ parameters.databricksPrdTarget }}
+                  championAlias: ${{ parameters.championAlias }}
+
+  - stage: StartMonitoring
+    displayName: "Ativar monitoramento contínuo"
+    dependsOn:
+      - ${{ if eq(parameters.runSmokeTests, true) }}:
+          - SmokeTestsPRD
+      - ${{ if eq(parameters.runSmokeTests, false) }}:
+          - PromoteChampion
+    variables:
+      - group: ${{ parameters.prdVariableGroup }}
+    jobs:
+      - job: StartMonitoring
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - checkout: mlops
+          - template: /pipelines/steps/install-python.yml@mlops
+            parameters:
+              pythonVersion: ${{ parameters.pythonVersion }}
+          - template: /pipelines/steps/install-databricks-cli.yml@mlops
+          - bash: |
+              set -euo pipefail
+              echo "Retomando (unpause) o job agendado de monitoramento no target ${{ parameters.databricksPrdTarget }}."
+              databricks bundle run monitoring_job -t ${{ parameters.databricksPrdTarget }} --no-wait || \
+                echo "##vso[task.logissue type=warning]Não foi possível disparar o job de monitoramento automaticamente -- verifique manualmente no workspace."
+            displayName: "Disparar job de monitoramento"

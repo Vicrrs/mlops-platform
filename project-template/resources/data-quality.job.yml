@@ -1,0 +1,34 @@
+# Job Databricks: valida a qualidade dos dados brutos antes de qualquer outra etapa.
+# Lógica real em churn_model.data.quality, chamada via churn_model.cli.run_data_quality.
+resources:
+  jobs:
+    data_quality_job:
+      name: "ml-churn-data-quality-${bundle.target}"
+      tags:
+        project: ml-churn
+        environment: ${var.environment}
+        managed_by: mlops-platform
+      job_clusters:
+        - job_cluster_key: main
+          new_cluster:
+            spark_version: ${var.spark_version}
+            node_type_id: ${var.node_type_id}
+            num_workers: ${var.min_workers}
+            data_security_mode: SINGLE_USER
+      tasks:
+        - task_key: run_data_quality
+          job_cluster_key: main
+          python_wheel_task:
+            package_name: churn_model
+            entry_point: churn-run-data-quality
+            parameters:
+              - "--config"
+              - "conf/${var.environment}.yml"
+              - "--output-dir"
+              - "artifacts/data_quality"
+          libraries:
+            - whl: ../dist/*.whl
+      email_notifications:
+        on_failure:
+          - mlops-alerts@empresa.com
+      max_concurrent_runs: 1

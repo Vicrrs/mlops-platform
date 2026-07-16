@@ -1,0 +1,36 @@
+# Steps template: dispara o job de smoke test (resources/smoke-test.job.yml,
+# que carrega o Champion recém-promovido e faz uma inferência pequena) e
+# valida o relatório resultante com o script central scripts/smoke_test.py.
+parameters:
+  - name: target
+    type: string
+  - name: championAlias
+    type: string
+    default: "champion"
+
+steps:
+  - bash: |
+      set -euo pipefail
+      python -m pip install mlflow
+      cd "$(Pipeline.Workspace)/s"
+      databricks bundle run smoke_test_job -t ${{ parameters.target }}
+      mkdir -p "$(Build.ArtifactStagingDirectory)"
+      databricks fs cp \
+        "dbfs:/mnt/mlops/$(Build.Repository.Name)/${{ parameters.target }}/artifacts/smoke_test/smoke_test_report.json" \
+        "$(Build.ArtifactStagingDirectory)/smoke_test_report.json" --overwrite
+    displayName: "Executar smoke test do Champion (${{ parameters.target }})"
+    env:
+      DATABRICKS_HOST: $(DATABRICKS_HOST)
+      DATABRICKS_CLIENT_ID: $(DATABRICKS_CLIENT_ID)
+      DATABRICKS_CLIENT_SECRET: $(DATABRICKS_CLIENT_SECRET)
+
+  - bash: |
+      set -euo pipefail
+      # O job Databricks já executou o smoke test de fato (acima); aqui
+      # reutilizamos a validação central do relatório (mesmo contrato usado
+      # em qualquer projeto). "true" no lugar de --command porque o disparo
+      # já aconteceu no step anterior -- só resta validar o relatório.
+      python "$(Pipeline.Workspace)/mlops/scripts/smoke_test.py" \
+        --command "true" \
+        --report-path "$(Build.ArtifactStagingDirectory)/smoke_test_report.json"
+    displayName: "Validar relatório de smoke test (alias: ${{ parameters.championAlias }})"

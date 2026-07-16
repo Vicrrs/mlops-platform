@@ -1,0 +1,41 @@
+# Steps template: dispara o job de treino do Challenger no Databricks
+# (resources/training.job.yml do projeto) e recolhe os metadados reais
+# (run_id, versão, métricas) produzidos pelo job para publicação como artefato.
+parameters:
+  - name: target
+    type: string
+  - name: packageName
+    type: string
+  - name: artifactName
+    type: string
+
+steps:
+  - bash: |
+      set -euo pipefail
+      cd "$(Pipeline.Workspace)/s"
+      databricks bundle run training_job -t ${{ parameters.target }}
+    displayName: "Executar job de treino do Challenger (${{ parameters.target }})"
+    env:
+      DATABRICKS_HOST: $(DATABRICKS_HOST)
+      DATABRICKS_CLIENT_ID: $(DATABRICKS_CLIENT_ID)
+      DATABRICKS_CLIENT_SECRET: $(DATABRICKS_CLIENT_SECRET)
+
+  - bash: |
+      set -euo pipefail
+      mkdir -p "$(Build.ArtifactStagingDirectory)"
+      for f in run_metadata.json model_metrics.json feature_config.json mlflow_run_id.txt model_version.txt commit_sha.txt; do
+        databricks fs cp \
+          "dbfs:/mnt/mlops/$(Build.Repository.Name)/${{ parameters.target }}/artifacts/training/$f" \
+          "$(Build.ArtifactStagingDirectory)/$f" --overwrite
+      done
+      echo "run_id=$(cat "$(Build.ArtifactStagingDirectory)/mlflow_run_id.txt")"
+      echo "model_version=$(cat "$(Build.ArtifactStagingDirectory)/model_version.txt")"
+    displayName: "Recolher metadados reais do treino (run_id, versão, métricas)"
+    env:
+      DATABRICKS_HOST: $(DATABRICKS_HOST)
+      DATABRICKS_CLIENT_ID: $(DATABRICKS_CLIENT_ID)
+      DATABRICKS_CLIENT_SECRET: $(DATABRICKS_CLIENT_SECRET)
+
+  - template: /pipelines/steps/publish-artifacts.yml@mlops
+    parameters:
+      artifactName: "${{ parameters.artifactName }}-training"

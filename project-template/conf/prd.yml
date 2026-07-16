@@ -1,0 +1,26 @@
+# Ambiente de produção -- executa dentro de um job Databricks (PRD workspace).
+# retrainInProduction=false por padrão na pipeline central: em PRD, este projeto
+# só deve rodar batch-inference.job.yml, monitoring.job.yml e smoke-test.job.yml.
+# training.job.yml só roda aqui se a exceção explícita for documentada (ver
+# docs/release-process.md).
+
+environment: prd
+
+data:
+  source: unity_catalog
+  catalog: "${DATABRICKS_CATALOG}"
+  schema: "${DATABRICKS_SCHEMA}"
+  quality:
+    max_null_percentage: 0.02
+    max_duplicate_percentage: 0.005
+    min_rows: 50
+    max_rows: 50000000
+    max_volume_change_percentage: 0.3
+
+mlflow:
+  tracking_uri: databricks
+  registry_uri: databricks-uc
+  experiment_name: "${MLFLOW_EXPERIMENT_NAME:-/Shared/ml-churn/prd}"
+  registered_model_name: "${MLFLOW_REGISTERED_MODEL_NAME}"
+
+artifacts_dir: /dbfs/mnt/mlops/ml-churn/prd/artifacts

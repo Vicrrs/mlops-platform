@@ -1,0 +1,17 @@
+# Step template: valida a estrutura obrigatória do projeto consumidor usando o
+# script central scripts/validate_project_structure.py (reutilizável, independente de Spark).
+parameters:
+  - name: projectDirectory
+    type: string
+    default: "$(Pipeline.Workspace)/s"
+  - name: mlopsDirectory
+    type: string
+    default: "$(Pipeline.Workspace)/mlops"
+
+steps:
+  - bash: |
+      set -euo pipefail
+      python "${{ parameters.mlopsDirectory }}/scripts/validate_project_structure.py" \
+        --project-path "${{ parameters.projectDirectory }}" \
+        --output-path "$(Build.ArtifactStagingDirectory)/project_structure_report.json"
+    displayName: "Validar estrutura do projeto"

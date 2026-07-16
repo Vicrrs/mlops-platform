@@ -1,0 +1,83 @@
+# Configuração base compartilhada por todos os ambientes.
+# Valores específicos de ambiente ficam em dev.yml / hml.yml / prd.yml e são
+# mesclados (merge profundo) sobre este arquivo por churn_model.config.load_config.
+
+project_name: ml-churn
+package_name: churn_model
+
+spark:
+  app_name: churn_model
+  shuffle_partitions: 8
+
+data:
+  raw_table: customers_churn_raw
+  target_column: churn
+  id_column: customer_id
+  required_columns:
+    - customer_id
+    - tenure_months
+    - monthly_charges
+    - total_charges
+    - contract_type
+    - internet_service
+    - support_calls
+    - is_active
+    - signup_date
+    - churn
+  categorical_columns:
+    - contract_type
+    - internet_service
+  numeric_columns:
+    - tenure_months
+    - monthly_charges
+    - total_charges
+    - support_calls
+  quality:
+    max_null_percentage: 0.05
+    max_duplicate_percentage: 0.01
+    min_rows: 50
+    max_rows: 5000000
+    max_volume_change_percentage: 0.5
+
+features:
+  version: "1"
+  numeric_columns:
+    - tenure_months
+    - monthly_charges
+    - total_charges
+    - support_calls
+  categorical_columns:
+    - contract_type
+    - internet_service
+  label_column: churn
+
+model:
+  type: spark_ml
+  algorithm: logistic_regression
+  primary_metric: f1_score
+  hyperparameters:
+    max_iter: 50
+    reg_param: 0.01
+    elastic_net_param: 0.0
+  thresholds:
+    minimum_accuracy: 0.6
+    minimum_precision: 0.55
+    minimum_recall: 0.55
+    minimum_f1_score: 0.55
+    minimum_roc_auc: 0.6
+    maximum_metric_regression: 0.01
+    minimum_improvement: 0.0
+
+mlflow:
+  registered_model_alias_champion: champion
+  registered_model_alias_challenger: challenger
+  registered_model_alias_previous_champion: previous_champion
+  registry_mode: shared_uc
+
+train_test_split:
+  train_fraction: 0.7
+  validation_fraction: 0.15
+  test_fraction: 0.15
+  seed: 42
+
+artifacts_dir: artifacts

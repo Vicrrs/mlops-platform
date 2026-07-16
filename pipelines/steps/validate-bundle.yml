@@ -1,0 +1,21 @@
+# Step template: valida o Databricks Asset Bundle do projeto (sintaxe + variáveis),
+# sem realizar deploy. Requer autenticação Databricks (Service Principal / OIDC) já
+# exportada como variáveis de ambiente pelo job chamador -- nunca fixada aqui.
+parameters:
+  - name: projectDirectory
+    type: string
+    default: "$(Pipeline.Workspace)/s"
+  - name: target
+    type: string
+
+steps:
+  - bash: |
+      set -euo pipefail
+      cd "${{ parameters.projectDirectory }}"
+      databricks bundle validate -t "${{ parameters.target }}"
+    displayName: "Validar Databricks Bundle (target: ${{ parameters.target }})"
+    env:
+      DATABRICKS_HOST: $(DATABRICKS_HOST)
+      DATABRICKS_CLIENT_ID: $(DATABRICKS_CLIENT_ID)
+      DATABRICKS_CLIENT_SECRET: $(DATABRICKS_CLIENT_SECRET)
+      ARM_TENANT_ID: $(AZURE_TENANT_ID)

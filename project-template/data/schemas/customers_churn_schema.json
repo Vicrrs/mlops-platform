@@ -1,0 +1,65 @@
+{
+  "fields": [
+    {
+      "metadata": {},
+      "name": "customer_id",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "metadata": {},
+      "name": "tenure_months",
+      "nullable": false,
+      "type": "integer"
+    },
+    {
+      "metadata": {},
+      "name": "monthly_charges",
+      "nullable": false,
+      "type": "double"
+    },
+    {
+      "metadata": {},
+      "name": "total_charges",
+      "nullable": true,
+      "type": "double"
+    },
+    {
+      "metadata": {},
+      "name": "contract_type",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "metadata": {},
+      "name": "internet_service",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "metadata": {},
+      "name": "support_calls",
+      "nullable": true,
+      "type": "integer"
+    },
+    {
+      "metadata": {},
+      "name": "is_active",
+      "nullable": false,
+      "type": "boolean"
+    },
+    {
+      "metadata": {},
+      "name": "signup_date",
+      "nullable": true,
+      "type": "date"
+    },
+    {
+      "metadata": {},
+      "name": "churn",
+      "nullable": false,
+      "type": "integer"
+    }
+  ],
+  "type": "struct"
+}

@@ -1,0 +1,20 @@
+# Ambiente de desenvolvimento local -- sem Databricks, sem Unity Catalog.
+# Executado pelo engenheiro na própria máquina ou nos testes/CI (stages Lint/UnitTests/SparkTests).
+
+environment: dev
+
+spark:
+  master: "local[*]"
+
+data:
+  source: local
+  raw_path: data/sample/customers_churn.csv
+  warehouse_dir: artifacts/warehouse
+
+mlflow:
+  tracking_uri: "file:./mlruns"
+  registry_uri: "file:./mlruns"
+  experiment_name: "/local/ml-churn/dev"
+  registered_model_name: "dev_catalog.churn.churn_model"
+
+artifacts_dir: artifacts

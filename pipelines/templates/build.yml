@@ -1,0 +1,41 @@
+# Steps template: build do artefato imutável (wheel + configuração + metadados de commit).
+# É construído uma ÚNICA vez; HML e PRD consomem exatamente este mesmo artefato
+# (ver docs/release-process.md e seção "Artefato imutável").
+parameters:
+  - name: packageName
+    type: string
+  - name: artifactName
+    type: string
+
+steps:
+  - template: /pipelines/steps/install-project.yml@mlops
+    parameters:
+      extras: "dev"
+
+  - bash: |
+      set -euo pipefail
+      cd "$(Pipeline.Workspace)/s"
+      python -m pip install build
+      mkdir -p "$(Build.ArtifactStagingDirectory)/dist"
+      python -m build --wheel --outdir "$(Build.ArtifactStagingDirectory)/dist"
+
+      # Copia o necessário para o Databricks Asset Bundle e para configuração,
+      # sem incluir dados, artefatos locais de teste ou segredos.
+      cp -r conf "$(Build.ArtifactStagingDirectory)/conf"
+      cp -r resources "$(Build.ArtifactStagingDirectory)/resources"
+      cp databricks.yml "$(Build.ArtifactStagingDirectory)/databricks.yml"
+      cp pyproject.toml "$(Build.ArtifactStagingDirectory)/pyproject.toml"
+
+      echo -n "$(Build.SourceVersion)" > "$(Build.ArtifactStagingDirectory)/commit_sha.txt"
+
+      WHEEL_FILE=$(ls "$(Build.ArtifactStagingDirectory)/dist"/*.whl | head -n1)
+      sha256sum "$WHEEL_FILE" | awk '{print $1}' > "$(Build.ArtifactStagingDirectory)/artifact_sha256.txt"
+
+      echo "Artefato imutável preparado:"
+      echo "  commit: $(cat "$(Build.ArtifactStagingDirectory)/commit_sha.txt")"
+      echo "  sha256: $(cat "$(Build.ArtifactStagingDirectory)/artifact_sha256.txt")"
+    displayName: "Build do wheel e metadados imutáveis (${{ parameters.packageName }})"
+
+  - template: /pipelines/steps/publish-artifacts.yml@mlops
+    parameters:
+      artifactName: ${{ parameters.artifactName }}

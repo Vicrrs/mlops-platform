@@ -1,0 +1,40 @@
+# Job Databricks: smoke test do Champion pós-promoção.
+# Lógica real em churn_model.models.inference, via churn_model.cli.run_smoke_test.
+# Disparado pela pipeline central (scripts/smoke_test.py) logo após PromoteChampion.
+resources:
+  jobs:
+    smoke_test_job:
+      name: "ml-churn-smoke-test-${bundle.target}"
+      tags:
+        project: ml-churn
+        environment: ${var.environment}
+        managed_by: mlops-platform
+      job_clusters:
+        - job_cluster_key: main
+          new_cluster:
+            spark_version: ${var.spark_version}
+            node_type_id: ${var.node_type_id}
+            num_workers: ${var.min_workers}
+            data_security_mode: SINGLE_USER
+      tasks:
+        - task_key: run_smoke_test
+          job_cluster_key: main
+          python_wheel_task:
+            package_name: churn_model
+            entry_point: churn-run-smoke-test
+            parameters:
+              - "--config"
+              - "conf/${var.environment}.yml"
+              - "--model-alias"
+              - "champion"
+              - "--sample-size"
+              - "10"
+              - "--output-dir"
+              - "artifacts/smoke_test"
+          libraries:
+            - whl: ../dist/*.whl
+      email_notifications:
+        on_failure:
+          - mlops-alerts@empresa.com
+      max_concurrent_runs: 1
+      timeout_seconds: 600

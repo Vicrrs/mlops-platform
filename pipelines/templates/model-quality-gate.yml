@@ -1,0 +1,28 @@
+# Steps template: quality gate final do modelo -- interrompe a pipeline quando
+# a recomendação técnica (calculada em compare-models.yml) não for "promote".
+# Falha aqui bloqueia ApprovalPRD e, portanto, qualquer promoção para PRD.
+parameters:
+  - name: artifactName
+    type: string
+
+steps:
+  - task: UsePythonVersion@0
+    displayName: "Instalar Python"
+    inputs:
+      versionSpec: "3.11"
+
+  - bash: |
+      set -euo pipefail
+      RECOMMENDATION_PATH="$(Pipeline.Workspace)/${{ parameters.artifactName }}-comparison/promotion_recommendation.json"
+      APPROVED=$(python -c "import json; print(json.load(open('$RECOMMENDATION_PATH'))['technical_approval'])")
+      RECOMMENDATION=$(python -c "import json; print(json.load(open('$RECOMMENDATION_PATH'))['recommendation'])")
+      PRIMARY_METRIC=$(python -c "import json; print(json.load(open('$RECOMMENDATION_PATH'))['primary_metric'])")
+      CHALLENGER_METRIC=$(python -c "import json; print(json.load(open('$RECOMMENDATION_PATH'))['challenger_metric'])")
+
+      echo "Recomendação: $RECOMMENDATION ($PRIMARY_METRIC=$CHALLENGER_METRIC)"
+
+      if [ "$APPROVED" != "True" ]; then
+        echo "##vso[task.logissue type=error]Quality gate do modelo reprovado: recomendação='$RECOMMENDATION'."
+        exit 1
+      fi
+    displayName: "Aplicar quality gate do modelo"

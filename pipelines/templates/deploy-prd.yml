@@ -1,0 +1,44 @@
+# Steps template: deploy do Databricks Asset Bundle em PRD, usando o MESMO
+# artefato imutável validado em HML. Por padrão NÃO re-treina o modelo em PRD
+# (retrainInProduction=false) -- qualquer exceção deve ser explícita e
+# documentada (ver docs/release-process.md).
+parameters:
+  - name: target
+    type: string
+  - name: artifactName
+    type: string
+  - name: retrainInProduction
+    type: boolean
+    default: false
+
+steps:
+  - download: current
+    artifact: ${{ parameters.artifactName }}
+
+  - bash: |
+      set -euo pipefail
+      cd "$(Pipeline.Workspace)/${{ parameters.artifactName }}"
+      databricks bundle deploy -t ${{ parameters.target }} \
+        --var="git_commit=$(Build.SourceVersion)" \
+        --var="build_id=$(Build.BuildId)"
+    displayName: "databricks bundle deploy (${{ parameters.target }})"
+    env:
+      DATABRICKS_HOST: $(DATABRICKS_HOST)
+      DATABRICKS_CLIENT_ID: $(DATABRICKS_CLIENT_ID)
+      DATABRICKS_CLIENT_SECRET: $(DATABRICKS_CLIENT_SECRET)
+      ARM_TENANT_ID: $(AZURE_TENANT_ID)
+
+  - ${{ if eq(parameters.retrainInProduction, true) }}:
+      - bash: |
+          echo "##vso[task.logissue type=warning]retrainInProduction=true: exceção explícita -- treinando novamente em PRD. Isso NÃO é o padrão da plataforma."
+          cd "$(Pipeline.Workspace)/${{ parameters.artifactName }}"
+          databricks bundle run training_job -t ${{ parameters.target }}
+        displayName: "[EXCEÇÃO] Retreinar em PRD (retrainInProduction=true)"
+        env:
+          DATABRICKS_HOST: $(DATABRICKS_HOST)
+          DATABRICKS_CLIENT_ID: $(DATABRICKS_CLIENT_ID)
+          DATABRICKS_CLIENT_SECRET: $(DATABRICKS_CLIENT_SECRET)
+  - ${{ if eq(parameters.retrainInProduction, false) }}:
+      - bash: |
+          echo "retrainInProduction=false (padrão): nenhum retreinamento em PRD. A versão promovida é exatamente a testada em HML."
+        displayName: "Confirmar não-retreinamento em PRD"

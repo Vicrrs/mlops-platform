@@ -1,0 +1,16 @@
+# Saídas de execução local -- nunca versionadas (geradas por EDA, treino,
+# qualidade de dados, comparação, inferência, monitoramento e smoke test).
+artifacts/*
+!artifacts/.gitkeep
+
+# MLflow local (file store) usado em desenvolvimento/testes.
+mlruns/
+mlartifacts/
+
+# Build do wheel (gerado pela pipeline, não versionado).
+dist/
+build/
+*.egg-info/
+
+# Aprovação/promoção/rollback simulados localmente durante desenvolvimento.
+approval.json

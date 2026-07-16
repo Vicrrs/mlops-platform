@@ -1,0 +1,40 @@
+# Steps template: registra o aprovador da promoção para PRD (o Azure DevOps
+# Environment já bloqueou a execução até um aprovador humano aceitar o
+# check de aprovação; este step apenas MATERIALIZA esse registro como
+# approval.json, consumido depois por verify_promotion_metadata.py / promote_model.py).
+parameters:
+  - name: artifactName
+    type: string
+
+steps:
+  - task: UsePythonVersion@0
+    displayName: "Instalar Python"
+    inputs:
+      versionSpec: "3.11"
+
+  - bash: |
+      set -euo pipefail
+      RUN_METADATA="$(Pipeline.Workspace)/${{ parameters.artifactName }}-training/run_metadata.json"
+      RUN_ID=$(python -c "import json; print(json.load(open('$RUN_METADATA'))['mlflow_run_id'])")
+      MODEL_VERSION=$(python -c "import json; print(json.load(open('$RUN_METADATA'))['model_version'])")
+
+      mkdir -p "$(Build.ArtifactStagingDirectory)"
+      python - "$(Build.ArtifactStagingDirectory)/approval.json" <<PYEOF
+      import json, sys, datetime
+      payload = {
+          "approver": "$(Build.RequestedForEmail)" or "$(Build.RequestedFor)",
+          "run_id": "$RUN_ID",
+          "model_version": "$MODEL_VERSION",
+          "approved_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+          "azure_devops_environment": "${{ parameters.artifactName }}",
+          "build_id": "$(Build.BuildId)",
+      }
+      with open(sys.argv[1], "w", encoding="utf-8") as fh:
+          json.dump(payload, fh, indent=2)
+      PYEOF
+      cat "$(Build.ArtifactStagingDirectory)/approval.json"
+    displayName: "Registrar aprovador da promoção para PRD"
+
+  - template: /pipelines/steps/publish-artifacts.yml@mlops
+    parameters:
+      artifactName: "${{ parameters.artifactName }}-approval"
