@@ -1,0 +1,16 @@
+# Step template: instala o pacote do projeto consumidor (checkout já feito) em modo editável,
+# com os extras necessários para lint/testes/Spark/MLflow.
+parameters:
+  - name: extras
+    type: string
+    default: "dev,spark,mlflow"
+  - name: workingDirectory
+    type: string
+    default: "$(Build.SourcesDirectory)"
+
+steps:
+  - bash: |
+      set -euo pipefail
+      cd "${{ parameters.workingDirectory }}"
+      python -m pip install -e ".[${{ parameters.extras }}]"
+    displayName: "Instalar projeto (extras: ${{ parameters.extras }})"
