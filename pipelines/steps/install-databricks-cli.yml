@@ -1,0 +1,22 @@
+# Step template: instala o Databricks CLI (>= 0.230, suporte a Asset Bundles) sem
+# exigir nenhuma credencial -- a autenticação é feita nos steps que o invocam,
+# via variáveis do Variable Group do ambiente (ver docs/required-variables.md).
+parameters:
+  - name: version
+    type: string
+    default: "1.8.0"
+
+steps:
+  - bash: |
+      set -euo pipefail
+      curl -sSL -o /tmp/databricks_cli.tar.gz \
+        "https://github.com/databricks/cli/releases/download/v${{ parameters.version }}/databricks_cli_${{ parameters.version }}_linux_amd64.tar.gz"
+      mkdir -p "$(Agent.ToolsDirectory)/databricks-cli"
+      tar -xzf /tmp/databricks_cli.tar.gz -C "$(Agent.ToolsDirectory)/databricks-cli"
+      echo "##vso[task.prependpath]$(Agent.ToolsDirectory)/databricks-cli"
+    displayName: "Instalar Databricks CLI v${{ parameters.version }}"
+
+  - bash: |
+      set -euo pipefail
+      databricks --version
+    displayName: "Verificar Databricks CLI"
