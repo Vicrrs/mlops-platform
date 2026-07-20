@@ -80,4 +80,20 @@ train_test_split:
   test_fraction: 0.15
   seed: 42
 
+feature_store:
+  enabled: false
+  table_name: churn_features
+  primary_keys:
+    - customer_id
+  feature_names:
+    - tenure_months
+    - monthly_charges
+    - total_charges
+    - support_calls
+    - contract_type
+    - internet_service
+    - avg_monthly_charge_ratio
+    - support_calls_per_tenure_month
+  timestamp_column: feature_timestamp
+
 artifacts_dir: artifacts

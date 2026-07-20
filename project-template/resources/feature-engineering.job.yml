@@ -1,0 +1,39 @@
+# Job Databricks: calcula e publica a tabela de features na feature store
+# (Unity Catalog em hml/prd). Roda ANTES do treino -- separado de propósito,
+# para que a tabela de features seja reutilizável por outras execuções/modelos,
+# não recalculada a cada treino.
+# Lógica real em churn_model.features.feature_store, via churn_model.cli.run_feature_engineering.
+resources:
+  jobs:
+    feature_engineering_job:
+      name: "ml-churn-feature-engineering-${bundle.target}"
+      tags:
+        project: ml-churn
+        environment: ${var.environment}
+        managed_by: mlops-platform
+      job_clusters:
+        - job_cluster_key: main
+          new_cluster:
+            spark_version: ${var.spark_version}
+            node_type_id: ${var.node_type_id}
+            num_workers: ${var.min_workers}
+            data_security_mode: SINGLE_USER
+      tasks:
+        - task_key: run_feature_engineering
+          job_cluster_key: main
+          python_wheel_task:
+            package_name: churn_model
+            entry_point: churn-run-feature-engineering
+            parameters:
+              - "--config"
+              - "conf/${var.environment}.yml"
+          libraries:
+            - whl: ../dist/*.whl
+      schedule:
+        quartz_cron_expression: "0 30 5 * * ?"
+        timezone_id: "America/Sao_Paulo"
+        pause_status: PAUSED
+      email_notifications:
+        on_failure:
+          - mlops-alerts@empresa.com
+      max_concurrent_runs: 1

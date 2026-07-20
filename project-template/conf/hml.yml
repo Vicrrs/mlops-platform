@@ -15,4 +15,9 @@ mlflow:
   experiment_name: "${MLFLOW_EXPERIMENT_NAME:-/Shared/ml-churn/hml}"
   registered_model_name: "${MLFLOW_REGISTERED_MODEL_NAME}"
 
+feature_store:
+  enabled: true
+  catalog: "${DATABRICKS_CATALOG}"
+  schema: "${DATABRICKS_SCHEMA}"
+
 artifacts_dir: /dbfs/mnt/mlops/ml-churn/hml/artifacts

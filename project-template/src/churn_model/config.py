@@ -127,6 +127,29 @@ class TrainTestSplitSettings:
 
 
 @dataclass(frozen=True)
+class FeatureStoreSettings:
+    enabled: bool = False
+    catalog: str = ""
+    schema: str = ""
+    table_name: str = "churn_features"
+    primary_keys: tuple[str, ...] = ("customer_id",)
+    feature_names: tuple[str, ...] = ()
+    timestamp_column: str = "feature_timestamp"
+
+    @property
+    def full_table_name(self) -> str:
+        """Nome completo da tabela de features.
+
+        Em ``dev``/local (sem catalog/schema configurados), retorna só o
+        ``table_name`` -- o LocalFeatureStore usa isso como chave no registro
+        local, não como uma tabela do Unity Catalog.
+        """
+        if self.catalog and self.schema:
+            return f"{self.catalog}.{self.schema}.{self.table_name}"
+        return self.table_name
+
+
+@dataclass(frozen=True)
 class AppConfig:
     environment: str
     project_name: str
@@ -137,6 +160,7 @@ class AppConfig:
     model: ModelSettings
     mlflow: MLflowSettings
     train_test_split: TrainTestSplitSettings
+    feature_store: FeatureStoreSettings
     raw: dict[str, Any]
 
     def artifacts_dir(self) -> Path:
@@ -186,6 +210,18 @@ def _build_model_settings(raw: dict[str, Any]) -> ModelSettings:
     )
 
 
+def _build_feature_store_settings(raw: dict[str, Any]) -> FeatureStoreSettings:
+    return FeatureStoreSettings(
+        enabled=bool(raw.get("enabled", False)),
+        catalog=raw.get("catalog", ""),
+        schema=raw.get("schema", ""),
+        table_name=raw.get("table_name", "churn_features"),
+        primary_keys=tuple(raw.get("primary_keys", ["customer_id"])),
+        feature_names=tuple(raw.get("feature_names", [])),
+        timestamp_column=raw.get("timestamp_column", "feature_timestamp"),
+    )
+
+
 def load_config(config_path: str | Path) -> AppConfig:
     """Carrega ``conf/base.yml`` mesclado com o arquivo de ambiente informado.
 
@@ -230,6 +266,7 @@ def load_config(config_path: str | Path) -> AppConfig:
             model=_build_model_settings(merged.get("model", {})),
             mlflow=MLflowSettings(**merged.get("mlflow", {})),
             train_test_split=TrainTestSplitSettings(**merged.get("train_test_split", {})),
+            feature_store=_build_feature_store_settings(merged.get("feature_store", {})),
             raw=merged,
         )
     except TypeError as exc:

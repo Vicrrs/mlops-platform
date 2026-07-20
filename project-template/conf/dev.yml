@@ -17,4 +17,9 @@ mlflow:
   experiment_name: "/local/ml-churn/dev"
   registered_model_name: "dev_catalog.churn.churn_model"
 
+# Sem Unity Catalog em dev: a feature store roda no modo local (Delta +
+# registro JSON em artifacts/feature_store/), sem catalog/schema.
+feature_store:
+  enabled: true
+
 artifacts_dir: artifacts

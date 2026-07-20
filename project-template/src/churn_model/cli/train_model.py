@@ -18,7 +18,7 @@ from churn_model.models.registry import (
     register_model_version,
     set_alias,
 )
-from churn_model.models.train import prepare_datasets, train_candidate
+from churn_model.models.train import prepare_datasets, prepare_datasets_from_feature_store, train_candidate
 
 logger = get_logger(__name__)
 
@@ -27,12 +27,22 @@ def main(argv: list[str] | None = None) -> int:
     parser = base_arg_parser("Treina o modelo candidato e registra a versão como Challenger no MLflow.")
     parser.add_argument("--output-dir", default="artifacts/training")
     parser.add_argument("--dataset-version", default="local-dev")
+    parser.add_argument(
+        "--use-feature-store",
+        action="store_true",
+        help="Monta o dataset de treino a partir da feature store (requer feature_store.enabled=true "
+        "e a tabela já publicada via churn_model.cli.run_feature_engineering).",
+    )
     args = parser.parse_args(argv)
 
     config, spark = bootstrap(args.config, app_name="churn_model-training")
     try:
         raw_df = load_raw_customers(spark, config)
-        train_df, validation_df, test_df = prepare_datasets(raw_df, config)
+        if args.use_feature_store:
+            labels_df = raw_df.select(*config.feature_store.primary_keys, config.features.label_column)
+            train_df, validation_df, test_df = prepare_datasets_from_feature_store(spark, config, labels_df)
+        else:
+            train_df, validation_df, test_df = prepare_datasets(raw_df, config)
 
         result = train_candidate(train_df, validation_df, test_df, config)
         validation_metrics = evaluate_model(

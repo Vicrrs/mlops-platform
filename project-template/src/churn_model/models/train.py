@@ -45,6 +45,23 @@ def prepare_datasets(df: DataFrame, config: AppConfig) -> tuple[DataFrame, DataF
     )
 
 
+def prepare_datasets_from_feature_store(
+    spark, config: AppConfig, labels_df: DataFrame
+) -> tuple[DataFrame, DataFrame, DataFrame]:
+    """Monta o dataset de treino a partir da feature store, em vez de features
+    calculadas ad-hoc a partir dos dados brutos.
+
+    ``labels_df`` só precisa conter as chaves primárias e a coluna-alvo -- as
+    demais colunas (features) vêm do ``build_training_set``, que faz o lookup
+    na tabela publicada por ``cli/run_feature_engineering.py``.
+    """
+    from churn_model.features.feature_store import get_feature_store
+
+    store = get_feature_store(config, spark)
+    training_set = store.build_training_set(labels_df, config.feature_store, config.features.label_column)
+    return prepare_datasets(training_set.dataframe, config)
+
+
 def train_candidate(
     train_df: DataFrame, validation_df: DataFrame, test_df: DataFrame, config: AppConfig
 ) -> TrainingResult:

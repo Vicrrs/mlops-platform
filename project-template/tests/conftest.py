@@ -12,6 +12,7 @@ from churn_model.config import (
     AppConfig,
     DataSettings,
     FeaturesSettings,
+    FeatureStoreSettings,
     MLflowSettings,
     ModelSettings,
     ModelThresholds,
@@ -120,6 +121,23 @@ def _build_test_config(tmp_path) -> AppConfig:
         ),
         train_test_split=TrainTestSplitSettings(
             train_fraction=0.6, validation_fraction=0.2, test_fraction=0.2, seed=42
+        ),
+        feature_store=FeatureStoreSettings(
+            enabled=True,
+            catalog="",
+            schema="",
+            table_name="churn_features_test",
+            primary_keys=("customer_id",),
+            feature_names=(
+                "tenure_months",
+                "monthly_charges",
+                "total_charges",
+                "support_calls",
+                "contract_type",
+                "internet_service",
+                "avg_monthly_charge_ratio",
+                "support_calls_per_tenure_month",
+            ),
         ),
         raw={"artifacts_dir": str(tmp_path / "artifacts")},
     )
